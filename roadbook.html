@@ -1851,6 +1851,11 @@
       ];
       const mapInstances = new Map();
       let amapLoaderPromise = null;
+      const isLocalFile = window.location.protocol === "file:";
+      const isSafariBrowser = (() => {
+        const ua = navigator.userAgent || "";
+        return /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS|DuckDuckGo/i.test(ua);
+      })();
 
       const savedState = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
       const state = {
@@ -2060,11 +2065,14 @@
 
       function buildMapSection(item) {
         if (!Array.isArray(item.mapPoints) || !item.mapPoints.length) return "";
+        const mapHint = isLocalFile || isSafariBrowser
+          ? "当前环境为本地文件或 Safari，为保证稳定性默认展示路线示意图"
+          : "优先使用高德地图；如底图加载失败，将自动回退为示意图";
         return `
           <div class="route-map-block">
             <div class="route-map-head">
               <strong>路线地图</strong>
-              <span>优先使用高德地图；如底图加载失败，将自动回退为示意图</span>
+              <span>${escapeHtml(mapHint)}</span>
             </div>
             <div class="route-map" id="map-${item.date}" data-date="${item.date}" aria-label="当日路线示意图"></div>
             <div class="map-note">${escapeHtml(item.mapSummary || "本图用于理解当天路线的大致位置与走向，并在可用时优先显示高德底图。")}</div>
@@ -2089,6 +2097,14 @@
       function loadAmapScript() {
         if (!AMAP_CONFIG.key) {
           return Promise.reject(new Error("AMap key missing"));
+        }
+
+        if (isLocalFile) {
+          return Promise.reject(new Error("AMap disabled for local file protocol"));
+        }
+
+        if (isSafariBrowser) {
+          return Promise.reject(new Error("AMap disabled for Safari compatibility"));
         }
 
         if (window.AMap) {
