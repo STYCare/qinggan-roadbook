@@ -4,10 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>青甘大环线私享行程书 | 2026-07-09 至 2026-07-17</title>
-    <link
-      rel="stylesheet"
-      href="./assets/leaflet.css"
-    />
     <style>
       :root {
         --bg: #f5f0e8;
@@ -675,20 +671,6 @@
           );
       }
 
-      .route-map .leaflet-control-attribution {
-        font-size: 10px;
-      }
-
-      .route-map .leaflet-container {
-        background: transparent;
-        font-family: inherit;
-      }
-
-      .route-map .leaflet-popup-content-wrapper {
-        border-radius: 14px;
-        box-shadow: 0 12px 28px rgba(45, 31, 19, 0.16);
-      }
-
       .route-marker {
         width: 24px;
         height: 24px;
@@ -701,6 +683,45 @@
         background: linear-gradient(135deg, var(--accent), var(--accent-2));
         box-shadow: 0 6px 12px rgba(45, 31, 19, 0.18);
         border: 2px solid rgba(255, 255, 255, 0.96);
+      }
+
+      .route-svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .route-grid-line {
+        stroke: rgba(147, 98, 55, 0.1);
+        stroke-width: 1;
+      }
+
+      .route-path {
+        fill: none;
+        stroke: #936237;
+        stroke-width: 4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .route-node {
+        fill: #fffdfa;
+        stroke: #936237;
+        stroke-width: 2;
+      }
+
+      .route-node-index {
+        fill: #936237;
+        font-size: 11px;
+        font-weight: 700;
+        text-anchor: middle;
+        dominant-baseline: middle;
+      }
+
+      .route-node-name {
+        fill: #5f5145;
+        font-size: 11px;
+        font-weight: 600;
       }
 
       .actions {
@@ -1155,13 +1176,7 @@
     </div>
     <div class="toast" id="toast"></div>
 
-    <script src="./assets/leaflet.js"></script>
     <script>
-      const AMAP_CONFIG = {
-        key: "78ba83764db2322c58b1da9a34759aa8",
-        securityCode: "67efdad0c952b6cab215e98cec131d82"
-      };
-
       const tripMeta = [
         { label: "往返日期", value: "2026年7月9日 - 2026年7月17日" },
         {
@@ -1849,13 +1864,6 @@
         document.getElementById("attributeFilters"),
         document.getElementById("lodgingFilters")
       ];
-      const mapInstances = new Map();
-      let amapLoaderPromise = null;
-      const isLocalFile = window.location.protocol === "file:";
-      const isSafariBrowser = (() => {
-        const ua = navigator.userAgent || "";
-        return /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS|DuckDuckGo/i.test(ua);
-      })();
 
       const savedState = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
       const state = {
@@ -2063,190 +2071,75 @@
         return `<span class="chip ${className}">${escapeHtml(text)}</span>`;
       }
 
-      function buildMapSection(item) {
-        if (!Array.isArray(item.mapPoints) || !item.mapPoints.length) return "";
-        const mapHint = isLocalFile || isSafariBrowser
-          ? "当前环境为本地文件或 Safari，为保证稳定性默认展示路线示意图"
-          : "优先使用高德地图；如底图加载失败，将自动回退为示意图";
+      function renderRouteSketch(points) {
+        if (!Array.isArray(points) || !points.length) return "";
+
+        const width = 720;
+        const height = 230;
+        const paddingX = 36;
+        const paddingY = 28;
+        const lats = points.map(point => point.coords[0]);
+        const lngs = points.map(point => point.coords[1]);
+        const minLat = Math.min(...lats);
+        const maxLat = Math.max(...lats);
+        const minLng = Math.min(...lngs);
+        const maxLng = Math.max(...lngs);
+        const latRange = Math.max(maxLat - minLat, 0.01);
+        const lngRange = Math.max(maxLng - minLng, 0.01);
+
+        const normalized = points.map((point, index) => {
+          const x = paddingX + ((point.coords[1] - minLng) / lngRange) * (width - paddingX * 2);
+          const y = height - paddingY - ((point.coords[0] - minLat) / latRange) * (height - paddingY * 2);
+          const labelY = index % 2 === 0 ? y - 18 : y + 24;
+          return {
+            ...point,
+            x,
+            y,
+            labelY
+          };
+        });
+
+        const pathData = normalized
+          .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
+          .join(" ");
+
+        const grid = [1, 2, 3, 4].map(step => {
+          const x = ((width - paddingX * 2) / 5) * step + paddingX;
+          return `<line class="route-grid-line" x1="${x}" y1="${paddingY}" x2="${x}" y2="${height - paddingY}" />`;
+        }).join("") + [1, 2, 3].map(step => {
+          const y = ((height - paddingY * 2) / 4) * step + paddingY;
+          return `<line class="route-grid-line" x1="${paddingX}" y1="${y}" x2="${width - paddingX}" y2="${y}" />`;
+        }).join("");
+
+        const nodes = normalized.map((point, index) => `
+          <g>
+            <circle class="route-node" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="11" />
+            <text class="route-node-index" x="${point.x.toFixed(1)}" y="${point.y.toFixed(1)}">${index + 1}</text>
+            <text class="route-node-name" x="${point.x.toFixed(1)}" y="${point.labelY.toFixed(1)}">${escapeHtml(point.name)}</text>
+          </g>
+        `).join("");
+
         return `
-          <div class="route-map-block">
-            <div class="route-map-head">
-              <strong>路线地图</strong>
-              <span>${escapeHtml(mapHint)}</span>
-            </div>
-            <div class="route-map" id="map-${item.date}" data-date="${item.date}" aria-label="当日路线示意图"></div>
-            <div class="map-note">${escapeHtml(item.mapSummary || "本图用于理解当天路线的大致位置与走向，并在可用时优先显示高德底图。")}</div>
-          </div>
+          <svg class="route-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="当日路线示意图">
+            ${grid}
+            <path class="route-path" d="${pathData}" />
+            ${nodes}
+          </svg>
         `;
       }
 
-      function destroyMaps() {
-        mapInstances.forEach(instance => {
-          if (!instance) return;
-          if (instance.provider === "amap" && instance.map?.destroy) {
-            instance.map.destroy();
-            return;
-          }
-          if (instance.map?.remove) {
-            instance.map.remove();
-          }
-        });
-        mapInstances.clear();
-      }
-
-      function loadAmapScript() {
-        if (!AMAP_CONFIG.key) {
-          return Promise.reject(new Error("AMap key missing"));
-        }
-
-        if (isLocalFile) {
-          return Promise.reject(new Error("AMap disabled for local file protocol"));
-        }
-
-        if (isSafariBrowser) {
-          return Promise.reject(new Error("AMap disabled for Safari compatibility"));
-        }
-
-        if (window.AMap) {
-          return Promise.resolve(window.AMap);
-        }
-
-        if (amapLoaderPromise) {
-          return amapLoaderPromise;
-        }
-
-        amapLoaderPromise = new Promise((resolve, reject) => {
-          if (AMAP_CONFIG.securityCode) {
-            window._AMapSecurityConfig = {
-              securityJsCode: AMAP_CONFIG.securityCode
-            };
-          }
-
-          const script = document.createElement("script");
-          script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(AMAP_CONFIG.key)}`;
-          script.async = true;
-          script.onload = () => {
-            if (window.AMap) {
-              resolve(window.AMap);
-            } else {
-              reject(new Error("AMap loaded without global"));
-            }
-          };
-          script.onerror = () => reject(new Error("AMap script failed"));
-          document.head.appendChild(script);
-        }).catch(error => {
-          amapLoaderPromise = null;
-          throw error;
-        });
-
-        return amapLoaderPromise;
-      }
-
-      function initializeSketchMaps(items) {
-        if (typeof window.L === "undefined") return;
-
-        items.forEach(item => {
-          const container = document.getElementById(`map-${item.date}`);
-          if (!container || mapInstances.has(item.date) || !item.mapPoints?.length) return;
-
-          const map = L.map(container, {
-            zoomControl: true,
-            scrollWheelZoom: false,
-            tap: true,
-            attributionControl: false,
-            preferCanvas: true
-          });
-
-          const latlngs = item.mapPoints.map(point => point.coords);
-          const polyline = L.polyline(latlngs, {
-            color: "#936237",
-            weight: 4,
-            opacity: 0.84
-          }).addTo(map);
-
-          item.mapPoints.forEach((point, index) => {
-            const icon = L.divIcon({
-              className: "",
-              html: `<div class="route-marker">${index + 1}</div>`,
-              iconSize: [24, 24],
-              iconAnchor: [12, 12]
-            });
-
-            L.marker(point.coords, { icon })
-              .addTo(map)
-              .bindPopup(`${index + 1}. ${escapeHtml(point.name)}`);
-          });
-
-          map.fitBounds(polyline.getBounds(), { padding: [22, 22] });
-          mapInstances.set(item.date, { provider: "leaflet", map });
-
-          setTimeout(() => map.invalidateSize(), 120);
-        });
-      }
-
-      function initializeAmapMaps(items) {
-        items.forEach(item => {
-          const container = document.getElementById(`map-${item.date}`);
-          if (!container || mapInstances.has(item.date) || !item.mapPoints?.length) return;
-
-          const points = item.mapPoints.map(point => ({
-            ...point,
-            lnglat: [point.coords[1], point.coords[0]]
-          }));
-
-          const center = points[0]?.lnglat || [103.8, 36.06];
-          const map = new window.AMap.Map(container, {
-            center,
-            zoom: 5,
-            resizeEnable: true,
-            mapStyle: "amap://styles/normal",
-            viewMode: "2D"
-          });
-
-          const polyline = new window.AMap.Polyline({
-            path: points.map(point => point.lnglat),
-            strokeColor: "#936237",
-            strokeOpacity: 0.9,
-            strokeWeight: 5,
-            lineJoin: "round",
-            lineCap: "round"
-          });
-          map.add(polyline);
-
-          points.forEach((point, index) => {
-            const marker = new window.AMap.Marker({
-              position: point.lnglat,
-              anchor: "center",
-              content: `<div class="route-marker">${index + 1}</div>`,
-              offset: new window.AMap.Pixel(0, 0)
-            });
-            marker.setMap(map);
-            marker.on("click", () => {
-              const infoWindow = new window.AMap.InfoWindow({
-                content: `<div style="padding:4px 2px;font-size:12px;">${index + 1}. ${escapeHtml(point.name)}</div>`,
-                offset: new window.AMap.Pixel(0, -12)
-              });
-              infoWindow.open(map, point.lnglat);
-            });
-          });
-
-          map.setFitView();
-          mapInstances.set(item.date, { provider: "amap", map });
-        });
-      }
-
-      async function initializeMaps(items) {
-        if (AMAP_CONFIG.key) {
-          try {
-            await loadAmapScript();
-            initializeAmapMaps(items);
-            return;
-          } catch (error) {
-            console.warn("AMap load failed, fallback to sketch map.", error);
-          }
-        }
-
-        initializeSketchMaps(items);
+      function buildMapSection(item) {
+        if (!Array.isArray(item.mapPoints) || !item.mapPoints.length) return "";
+        return `
+          <div class="route-map-block">
+            <div class="route-map-head">
+              <strong>路线示意图</strong>
+              <span>纯 SVG 兼容版，适配 Safari、微信与本地文件打开</span>
+            </div>
+            <div class="route-map" aria-label="当日路线示意图">${renderRouteSketch(item.mapPoints)}</div>
+            <div class="map-note">${escapeHtml(item.mapSummary || "本图用于理解当天路线的大致位置与走向，为兼容性优先的示意图版本。")}</div>
+          </div>
+        `;
       }
 
       function cardTemplate(item) {
@@ -2347,7 +2240,6 @@
           fragment.appendChild(wrapper.firstElementChild);
         }
         timeline.appendChild(fragment);
-        requestAnimationFrame(() => initializeMaps(filtered));
       }
 
       function syncFilterButtons() {
