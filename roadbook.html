@@ -671,57 +671,40 @@
           );
       }
 
-      .route-marker {
-        width: 24px;
-        height: 24px;
-        border-radius: 999px;
+      .route-map-shell {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 10px;
+        padding: 14px;
+      }
+
+      .route-map-tools {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .route-map-placeholder {
+        min-height: 160px;
+        border-radius: 16px;
+        border: 1px dashed rgba(147, 98, 55, 0.28);
+        background: rgba(255, 255, 255, 0.45);
         display: grid;
         place-items: center;
-        color: #fff;
-        font-size: 12px;
-        font-weight: 800;
-        background: linear-gradient(135deg, var(--accent), var(--accent-2));
-        box-shadow: 0 6px 12px rgba(45, 31, 19, 0.18);
-        border: 2px solid rgba(255, 255, 255, 0.96);
+        padding: 18px;
+        text-align: center;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.7;
       }
 
-      .route-svg {
-        display: block;
+      .route-map-frame {
         width: 100%;
         height: 100%;
-      }
-
-      .route-grid-line {
-        stroke: rgba(147, 98, 55, 0.1);
-        stroke-width: 1;
-      }
-
-      .route-path {
-        fill: none;
-        stroke: #936237;
-        stroke-width: 4;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
-
-      .route-node {
-        fill: #fffdfa;
-        stroke: #936237;
-        stroke-width: 2;
-      }
-
-      .route-node-index {
-        fill: #936237;
-        font-size: 11px;
-        font-weight: 700;
-        text-anchor: middle;
-        dominant-baseline: middle;
-      }
-
-      .route-node-name {
-        fill: #5f5145;
-        font-size: 11px;
-        font-weight: 600;
+        min-height: 200px;
+        border: 0;
+        border-radius: 16px;
+        background: #fff;
       }
 
       .actions {
@@ -2071,73 +2054,41 @@
         return `<span class="chip ${className}">${escapeHtml(text)}</span>`;
       }
 
-      function renderRouteSketch(points) {
-        if (!Array.isArray(points) || !points.length) return "";
+      function getAmapMarkerUrl(points) {
+        const markerParam = points
+          .map(point => `${point.coords[1]},${point.coords[0]},${point.name}`)
+          .join("|");
+        return `https://uri.amap.com/marker?markers=${encodeURIComponent(markerParam)}&src=roadbook&coordinate=gaode&callnative=0`;
+      }
 
-        const width = 720;
-        const height = 230;
-        const paddingX = 36;
-        const paddingY = 28;
-        const lats = points.map(point => point.coords[0]);
-        const lngs = points.map(point => point.coords[1]);
-        const minLat = Math.min(...lats);
-        const maxLat = Math.max(...lats);
-        const minLng = Math.min(...lngs);
-        const maxLng = Math.max(...lngs);
-        const latRange = Math.max(maxLat - minLat, 0.01);
-        const lngRange = Math.max(maxLng - minLng, 0.01);
-
-        const normalized = points.map((point, index) => {
-          const x = paddingX + ((point.coords[1] - minLng) / lngRange) * (width - paddingX * 2);
-          const y = height - paddingY - ((point.coords[0] - minLat) / latRange) * (height - paddingY * 2);
-          const labelY = index % 2 === 0 ? y - 18 : y + 24;
-          return {
-            ...point,
-            x,
-            y,
-            labelY
-          };
-        });
-
-        const pathData = normalized
-          .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
-          .join(" ");
-
-        const grid = [1, 2, 3, 4].map(step => {
-          const x = ((width - paddingX * 2) / 5) * step + paddingX;
-          return `<line class="route-grid-line" x1="${x}" y1="${paddingY}" x2="${x}" y2="${height - paddingY}" />`;
-        }).join("") + [1, 2, 3].map(step => {
-          const y = ((height - paddingY * 2) / 4) * step + paddingY;
-          return `<line class="route-grid-line" x1="${paddingX}" y1="${y}" x2="${width - paddingX}" y2="${y}" />`;
-        }).join("");
-
-        const nodes = normalized.map((point, index) => `
-          <g>
-            <circle class="route-node" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="11" />
-            <text class="route-node-index" x="${point.x.toFixed(1)}" y="${point.y.toFixed(1)}">${index + 1}</text>
-            <text class="route-node-name" x="${point.x.toFixed(1)}" y="${point.labelY.toFixed(1)}">${escapeHtml(point.name)}</text>
-          </g>
-        `).join("");
-
-        return `
-          <svg class="route-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="当日路线示意图">
-            ${grid}
-            <path class="route-path" d="${pathData}" />
-            ${nodes}
-          </svg>
-        `;
+      function getAmapRouteUrl(points) {
+        if (!Array.isArray(points) || points.length < 2) return getAmapMarkerUrl(points);
+        const first = points[0];
+        const last = points[points.length - 1];
+        return `https://uri.amap.com/navigation?from=${encodeURIComponent(`${first.coords[1]},${first.coords[0]},${first.name}`)}&to=${encodeURIComponent(`${last.coords[1]},${last.coords[0]},${last.name}`)}&mode=car&src=roadbook&callnative=0`;
       }
 
       function buildMapSection(item) {
         if (!Array.isArray(item.mapPoints) || !item.mapPoints.length) return "";
+        const markerUrl = getAmapMarkerUrl(item.mapPoints);
+        const routeUrl = getAmapRouteUrl(item.mapPoints);
         return `
           <div class="route-map-block">
             <div class="route-map-head">
-              <strong>路线示意图</strong>
-              <span>纯 SVG 兼容版，适配 Safari、微信与本地文件打开</span>
+              <strong>高德在线地图</strong>
+              <span>按需加载，避免 Safari 与微信内置浏览器反复刷新</span>
             </div>
-            <div class="route-map" aria-label="当日路线示意图">${renderRouteSketch(item.mapPoints)}</div>
-            <div class="map-note">${escapeHtml(item.mapSummary || "本图用于理解当天路线的大致位置与走向，为兼容性优先的示意图版本。")}</div>
+            <div class="route-map route-map-shell" data-map-shell="${item.date}">
+              <div class="route-map-tools">
+                <button class="mini-btn load-amap-btn" type="button" data-map-date="${item.date}" data-map-url="${escapeHtml(markerUrl)}">加载在线地图</button>
+                <a class="mini-btn" href="${escapeHtml(routeUrl)}" target="_blank" rel="noopener noreferrer">打开高德路线</a>
+              </div>
+              <div class="route-map-placeholder" data-map-placeholder="${item.date}">
+                点击“加载在线地图”后，将在当前卡片内打开高德 H5 地图。<br />
+                如微信内打开仍有限制，可使用“打开高德路线”单独查看。
+              </div>
+            </div>
+            <div class="map-note">${escapeHtml(item.mapSummary || "本图对应高德真实在线地图，采用按需加载方式提升稳定性。")}</div>
           </div>
         `;
       }
@@ -2220,7 +2171,6 @@
       function renderTimeline() {
         const filtered = getFilteredItems();
         updatePageTitle(filtered.length);
-        destroyMaps();
 
         if (!filtered.length) {
           timeline.innerHTML = `
@@ -2292,6 +2242,29 @@
             window.scrollTo({ top: 0, behavior: "smooth" });
             document.querySelector(".hero")?.classList.add("flash");
             setTimeout(() => document.querySelector(".hero")?.classList.remove("flash"), 900);
+            return;
+          }
+
+          const loadMapBtn = event.target.closest(".load-amap-btn");
+          if (loadMapBtn) {
+            const date = loadMapBtn.dataset.mapDate;
+            const url = loadMapBtn.dataset.mapUrl;
+            const shell = document.querySelector(`[data-map-shell="${date}"]`);
+            if (!shell || shell.dataset.loaded === "true") return;
+            shell.dataset.loaded = "true";
+            shell.innerHTML = `
+              <div class="route-map-tools">
+                <a class="mini-btn" href="${url}" target="_blank" rel="noopener noreferrer">在新窗口打开高德</a>
+              </div>
+              <iframe
+                class="route-map-frame"
+                src="${url}"
+                loading="lazy"
+                referrerpolicy="strict-origin-when-cross-origin"
+                allowfullscreen
+                title="高德在线地图"
+              ></iframe>
+            `;
           }
         });
       }
