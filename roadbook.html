@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>青甘大环线私享行程书 | 2026-07-09 至 2026-07-17</title>
+    <link
+      rel="stylesheet"
+      href="./assets/leaflet.css"
+    />
     <style>
       :root {
         --bg: #f5f0e8;
@@ -649,7 +653,7 @@
 
       .route-map {
         width: 100%;
-        height: 260px;
+        height: 230px;
         border-radius: 20px;
         overflow: hidden;
         border: 1px solid var(--line);
@@ -671,23 +675,32 @@
           );
       }
 
-      .route-map-frame {
-        width: 100%;
-        height: 100%;
-        min-height: 258px;
-        border: 0;
-        border-radius: 20px;
-        background: #fff;
+      .route-map .leaflet-control-attribution {
+        font-size: 10px;
       }
 
-      .route-map-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        color: var(--accent);
-        text-decoration: none;
+      .route-map .leaflet-container {
+        background: transparent;
+        font-family: inherit;
+      }
+
+      .route-map .leaflet-popup-content-wrapper {
+        border-radius: 14px;
+        box-shadow: 0 12px 28px rgba(45, 31, 19, 0.16);
+      }
+
+      .route-marker {
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        color: #fff;
         font-size: 12px;
-        font-weight: 600;
+        font-weight: 800;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        box-shadow: 0 6px 12px rgba(45, 31, 19, 0.18);
+        border: 2px solid rgba(255, 255, 255, 0.96);
       }
 
       .actions {
@@ -1142,7 +1155,13 @@
     </div>
     <div class="toast" id="toast"></div>
 
+    <script src="./assets/leaflet.js"></script>
     <script>
+      const AMAP_CONFIG = {
+        key: "78ba83764db2322c58b1da9a34759aa8",
+        securityCode: "67efdad0c952b6cab215e98cec131d82"
+      };
+
       const tripMeta = [
         { label: "往返日期", value: "2026年7月9日 - 2026年7月17日" },
         {
@@ -1830,6 +1849,8 @@
         document.getElementById("attributeFilters"),
         document.getElementById("lodgingFilters")
       ];
+      const mapInstances = new Map();
+      let amapLoaderPromise = null;
 
       const savedState = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
       const state = {
@@ -2037,43 +2058,179 @@
         return `<span class="chip ${className}">${escapeHtml(text)}</span>`;
       }
 
-      function getAmapMarkerUrl(points) {
-        const markerParam = points
-          .map(point => `${point.coords[1]},${point.coords[0]},${point.name}`)
-          .join("|");
-        return `https://uri.amap.com/marker?markers=${encodeURIComponent(markerParam)}&src=roadbook&coordinate=gaode&callnative=0`;
-      }
-
-      function getAmapRouteUrl(points) {
-        if (!Array.isArray(points) || points.length < 2) return getAmapMarkerUrl(points);
-        const first = points[0];
-        const last = points[points.length - 1];
-        return `https://uri.amap.com/navigation?from=${encodeURIComponent(`${first.coords[1]},${first.coords[0]},${first.name}`)}&to=${encodeURIComponent(`${last.coords[1]},${last.coords[0]},${last.name}`)}&mode=car&src=roadbook&callnative=0`;
-      }
-
       function buildMapSection(item) {
         if (!Array.isArray(item.mapPoints) || !item.mapPoints.length) return "";
-        const markerUrl = getAmapMarkerUrl(item.mapPoints);
-        const routeUrl = getAmapRouteUrl(item.mapPoints);
         return `
           <div class="route-map-block">
             <div class="route-map-head">
-              <strong>高德在线地图</strong>
-              <a class="route-map-link" href="${escapeHtml(routeUrl)}" target="_blank" rel="noopener noreferrer">在高德打开</a>
+              <strong>路线地图</strong>
+              <span>优先使用高德地图；如底图加载失败，将自动回退为示意图</span>
             </div>
-            <div class="route-map">
-              <iframe
-                class="route-map-frame"
-                src="${escapeHtml(markerUrl)}"
-                loading="lazy"
-                referrerpolicy="strict-origin-when-cross-origin"
-                allowfullscreen
-                title="高德在线地图"
-              ></iframe>
-            </div>
-            <div class="map-note">${escapeHtml(item.mapSummary || "本图对应高德真实在线地图，采用按需加载方式提升稳定性。")}</div>
+            <div class="route-map" id="map-${item.date}" data-date="${item.date}" aria-label="当日路线示意图"></div>
+            <div class="map-note">${escapeHtml(item.mapSummary || "本图用于理解当天路线的大致位置与走向，并在可用时优先显示高德底图。")}</div>
           </div>
         `;
+      }
+
+      function destroyMaps() {
+        mapInstances.forEach(instance => {
+          if (!instance) return;
+          if (instance.provider === "amap" && instance.map?.destroy) {
+            instance.map.destroy();
+            return;
+          }
+          if (instance.map?.remove) {
+            instance.map.remove();
+          }
+        });
+        mapInstances.clear();
+      }
+
+      function loadAmapScript() {
+        if (!AMAP_CONFIG.key) {
+          return Promise.reject(new Error("AMap key missing"));
+        }
+
+        if (window.AMap) {
+          return Promise.resolve(window.AMap);
+        }
+
+        if (amapLoaderPromise) {
+          return amapLoaderPromise;
+        }
+
+        amapLoaderPromise = new Promise((resolve, reject) => {
+          if (AMAP_CONFIG.securityCode) {
+            window._AMapSecurityConfig = {
+              securityJsCode: AMAP_CONFIG.securityCode
+            };
+          }
+
+          const script = document.createElement("script");
+          script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(AMAP_CONFIG.key)}`;
+          script.async = true;
+          script.onload = () => {
+            if (window.AMap) {
+              resolve(window.AMap);
+            } else {
+              reject(new Error("AMap loaded without global"));
+            }
+          };
+          script.onerror = () => reject(new Error("AMap script failed"));
+          document.head.appendChild(script);
+        }).catch(error => {
+          amapLoaderPromise = null;
+          throw error;
+        });
+
+        return amapLoaderPromise;
+      }
+
+      function initializeSketchMaps(items) {
+        if (typeof window.L === "undefined") return;
+
+        items.forEach(item => {
+          const container = document.getElementById(`map-${item.date}`);
+          if (!container || mapInstances.has(item.date) || !item.mapPoints?.length) return;
+
+          const map = L.map(container, {
+            zoomControl: true,
+            scrollWheelZoom: false,
+            tap: true,
+            attributionControl: false,
+            preferCanvas: true
+          });
+
+          const latlngs = item.mapPoints.map(point => point.coords);
+          const polyline = L.polyline(latlngs, {
+            color: "#936237",
+            weight: 4,
+            opacity: 0.84
+          }).addTo(map);
+
+          item.mapPoints.forEach((point, index) => {
+            const icon = L.divIcon({
+              className: "",
+              html: `<div class="route-marker">${index + 1}</div>`,
+              iconSize: [24, 24],
+              iconAnchor: [12, 12]
+            });
+
+            L.marker(point.coords, { icon })
+              .addTo(map)
+              .bindPopup(`${index + 1}. ${escapeHtml(point.name)}`);
+          });
+
+          map.fitBounds(polyline.getBounds(), { padding: [22, 22] });
+          mapInstances.set(item.date, { provider: "leaflet", map });
+
+          setTimeout(() => map.invalidateSize(), 120);
+        });
+      }
+
+      function initializeAmapMaps(items) {
+        items.forEach(item => {
+          const container = document.getElementById(`map-${item.date}`);
+          if (!container || mapInstances.has(item.date) || !item.mapPoints?.length) return;
+
+          const points = item.mapPoints.map(point => ({
+            ...point,
+            lnglat: [point.coords[1], point.coords[0]]
+          }));
+
+          const center = points[0]?.lnglat || [103.8, 36.06];
+          const map = new window.AMap.Map(container, {
+            center,
+            zoom: 5,
+            resizeEnable: true,
+            mapStyle: "amap://styles/normal",
+            viewMode: "2D"
+          });
+
+          const polyline = new window.AMap.Polyline({
+            path: points.map(point => point.lnglat),
+            strokeColor: "#936237",
+            strokeOpacity: 0.9,
+            strokeWeight: 5,
+            lineJoin: "round",
+            lineCap: "round"
+          });
+          map.add(polyline);
+
+          points.forEach((point, index) => {
+            const marker = new window.AMap.Marker({
+              position: point.lnglat,
+              anchor: "center",
+              content: `<div class="route-marker">${index + 1}</div>`,
+              offset: new window.AMap.Pixel(0, 0)
+            });
+            marker.setMap(map);
+            marker.on("click", () => {
+              const infoWindow = new window.AMap.InfoWindow({
+                content: `<div style="padding:4px 2px;font-size:12px;">${index + 1}. ${escapeHtml(point.name)}</div>`,
+                offset: new window.AMap.Pixel(0, -12)
+              });
+              infoWindow.open(map, point.lnglat);
+            });
+          });
+
+          map.setFitView();
+          mapInstances.set(item.date, { provider: "amap", map });
+        });
+      }
+
+      async function initializeMaps(items) {
+        if (AMAP_CONFIG.key) {
+          try {
+            await loadAmapScript();
+            initializeAmapMaps(items);
+            return;
+          } catch (error) {
+            console.warn("AMap load failed, fallback to sketch map.", error);
+          }
+        }
+
+        initializeSketchMaps(items);
       }
 
       function cardTemplate(item) {
@@ -2154,6 +2311,7 @@
       function renderTimeline() {
         const filtered = getFilteredItems();
         updatePageTitle(filtered.length);
+        destroyMaps();
 
         if (!filtered.length) {
           timeline.innerHTML = `
@@ -2173,6 +2331,7 @@
           fragment.appendChild(wrapper.firstElementChild);
         }
         timeline.appendChild(fragment);
+        requestAnimationFrame(() => initializeMaps(filtered));
       }
 
       function syncFilterButtons() {
