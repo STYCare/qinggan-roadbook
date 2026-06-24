@@ -657,11 +657,36 @@
         border-radius: 20px;
         overflow: hidden;
         border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.56);
+        background:
+          linear-gradient(180deg, rgba(255, 251, 245, 0.96), rgba(246, 237, 226, 0.92)),
+          repeating-linear-gradient(
+            0deg,
+            rgba(147, 98, 55, 0.05) 0,
+            rgba(147, 98, 55, 0.05) 1px,
+            transparent 1px,
+            transparent 38px
+          ),
+          repeating-linear-gradient(
+            90deg,
+            rgba(147, 98, 55, 0.05) 0,
+            rgba(147, 98, 55, 0.05) 1px,
+            transparent 1px,
+            transparent 38px
+          );
       }
 
       .route-map .leaflet-control-attribution {
         font-size: 10px;
+      }
+
+      .route-map .leaflet-container {
+        background: transparent;
+        font-family: inherit;
+      }
+
+      .route-map .leaflet-popup-content-wrapper {
+        border-radius: 14px;
+        box-shadow: 0 12px 28px rgba(45, 31, 19, 0.16);
       }
 
       .route-marker {
@@ -2032,11 +2057,11 @@
         return `
           <div class="route-map-block">
             <div class="route-map-head">
-              <strong>路线地图</strong>
-              <span>可放大缩小，拖动查看关键节点</span>
+              <strong>路线示意图</strong>
+              <span>可放大缩小，拖动查看关键节点，不依赖外部在线底图</span>
             </div>
-            <div class="route-map" id="map-${item.date}" data-date="${item.date}" aria-label="当日路线地图"></div>
-            <div class="map-note">${escapeHtml(item.mapSummary || "地图按关键节点绘制，用于理解当天路线的大致位置与走向。")}</div>
+            <div class="route-map" id="map-${item.date}" data-date="${item.date}" aria-label="当日路线示意图"></div>
+            <div class="map-note">${escapeHtml(item.mapSummary || "本图按关键节点与经纬度关系绘制，用于理解当天路线的大致位置与走向。")}</div>
           </div>
         `;
       }
@@ -2056,13 +2081,10 @@
           const map = L.map(container, {
             zoomControl: true,
             scrollWheelZoom: false,
-            tap: true
+            tap: true,
+            attributionControl: false,
+            preferCanvas: true
           });
-
-          L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            maxZoom: 18,
-            attribution: "&copy; OpenStreetMap contributors"
-          }).addTo(map);
 
           const latlngs = item.mapPoints.map(point => point.coords);
           const polyline = L.polyline(latlngs, {
