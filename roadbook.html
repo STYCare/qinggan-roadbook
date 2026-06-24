@@ -649,7 +649,7 @@
 
       .route-map {
         width: 100%;
-        height: 230px;
+        height: 260px;
         border-radius: 20px;
         overflow: hidden;
         border: 1px solid var(--line);
@@ -671,40 +671,23 @@
           );
       }
 
-      .route-map-shell {
-        display: grid;
-        grid-template-rows: auto 1fr;
-        gap: 10px;
-        padding: 14px;
-      }
-
-      .route-map-tools {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-
-      .route-map-placeholder {
-        min-height: 160px;
-        border-radius: 16px;
-        border: 1px dashed rgba(147, 98, 55, 0.28);
-        background: rgba(255, 255, 255, 0.45);
-        display: grid;
-        place-items: center;
-        padding: 18px;
-        text-align: center;
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.7;
-      }
-
       .route-map-frame {
         width: 100%;
         height: 100%;
-        min-height: 200px;
+        min-height: 258px;
         border: 0;
-        border-radius: 16px;
+        border-radius: 20px;
         background: #fff;
+      }
+
+      .route-map-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--accent);
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: 600;
       }
 
       .actions {
@@ -2076,17 +2059,17 @@
           <div class="route-map-block">
             <div class="route-map-head">
               <strong>高德在线地图</strong>
-              <span>按需加载，避免 Safari 与微信内置浏览器反复刷新</span>
+              <a class="route-map-link" href="${escapeHtml(routeUrl)}" target="_blank" rel="noopener noreferrer">在高德打开</a>
             </div>
-            <div class="route-map route-map-shell" data-map-shell="${item.date}">
-              <div class="route-map-tools">
-                <button class="mini-btn load-amap-btn" type="button" data-map-date="${item.date}" data-map-url="${escapeHtml(markerUrl)}">加载在线地图</button>
-                <a class="mini-btn" href="${escapeHtml(routeUrl)}" target="_blank" rel="noopener noreferrer">打开高德路线</a>
-              </div>
-              <div class="route-map-placeholder" data-map-placeholder="${item.date}">
-                点击“加载在线地图”后，将在当前卡片内打开高德 H5 地图。<br />
-                如微信内打开仍有限制，可使用“打开高德路线”单独查看。
-              </div>
+            <div class="route-map">
+              <iframe
+                class="route-map-frame"
+                src="${escapeHtml(markerUrl)}"
+                loading="lazy"
+                referrerpolicy="strict-origin-when-cross-origin"
+                allowfullscreen
+                title="高德在线地图"
+              ></iframe>
             </div>
             <div class="map-note">${escapeHtml(item.mapSummary || "本图对应高德真实在线地图，采用按需加载方式提升稳定性。")}</div>
           </div>
@@ -2242,29 +2225,6 @@
             window.scrollTo({ top: 0, behavior: "smooth" });
             document.querySelector(".hero")?.classList.add("flash");
             setTimeout(() => document.querySelector(".hero")?.classList.remove("flash"), 900);
-            return;
-          }
-
-          const loadMapBtn = event.target.closest(".load-amap-btn");
-          if (loadMapBtn) {
-            const date = loadMapBtn.dataset.mapDate;
-            const url = loadMapBtn.dataset.mapUrl;
-            const shell = document.querySelector(`[data-map-shell="${date}"]`);
-            if (!shell || shell.dataset.loaded === "true") return;
-            shell.dataset.loaded = "true";
-            shell.innerHTML = `
-              <div class="route-map-tools">
-                <a class="mini-btn" href="${url}" target="_blank" rel="noopener noreferrer">在新窗口打开高德</a>
-              </div>
-              <iframe
-                class="route-map-frame"
-                src="${url}"
-                loading="lazy"
-                referrerpolicy="strict-origin-when-cross-origin"
-                allowfullscreen
-                title="高德在线地图"
-              ></iframe>
-            `;
           }
         });
       }
