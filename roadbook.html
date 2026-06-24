@@ -1157,6 +1157,11 @@
 
     <script src="./assets/leaflet.js"></script>
     <script>
+      const AMAP_CONFIG = {
+        key: "775d20c0b405ff4cfa13cfa9c5223abb",
+        securityCode: ""
+      };
+
       const tripMeta = [
         { label: "往返日期", value: "2026年7月9日 - 2026年7月17日" },
         {
@@ -1845,6 +1850,7 @@
         document.getElementById("lodgingFilters")
       ];
       const mapInstances = new Map();
+      let amapLoaderPromise = null;
 
       const savedState = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
       const state = {
@@ -2057,21 +2063,70 @@
         return `
           <div class="route-map-block">
             <div class="route-map-head">
-              <strong>路线示意图</strong>
-              <span>可放大缩小，拖动查看关键节点，不依赖外部在线底图</span>
+              <strong>路线地图</strong>
+              <span>优先使用高德地图；如底图加载失败，将自动回退为示意图</span>
             </div>
             <div class="route-map" id="map-${item.date}" data-date="${item.date}" aria-label="当日路线示意图"></div>
-            <div class="map-note">${escapeHtml(item.mapSummary || "本图按关键节点与经纬度关系绘制，用于理解当天路线的大致位置与走向。")}</div>
+            <div class="map-note">${escapeHtml(item.mapSummary || "本图用于理解当天路线的大致位置与走向，并在可用时优先显示高德底图。")}</div>
           </div>
         `;
       }
 
       function destroyMaps() {
-        mapInstances.forEach(map => map.remove());
+        mapInstances.forEach(instance => {
+          if (!instance) return;
+          if (instance.provider === "amap" && instance.map?.destroy) {
+            instance.map.destroy();
+            return;
+          }
+          if (instance.map?.remove) {
+            instance.map.remove();
+          }
+        });
         mapInstances.clear();
       }
 
-      function initializeMaps(items) {
+      function loadAmapScript() {
+        if (!AMAP_CONFIG.key) {
+          return Promise.reject(new Error("AMap key missing"));
+        }
+
+        if (window.AMap) {
+          return Promise.resolve(window.AMap);
+        }
+
+        if (amapLoaderPromise) {
+          return amapLoaderPromise;
+        }
+
+        amapLoaderPromise = new Promise((resolve, reject) => {
+          if (AMAP_CONFIG.securityCode) {
+            window._AMapSecurityConfig = {
+              securityJsCode: AMAP_CONFIG.securityCode
+            };
+          }
+
+          const script = document.createElement("script");
+          script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(AMAP_CONFIG.key)}`;
+          script.async = true;
+          script.onload = () => {
+            if (window.AMap) {
+              resolve(window.AMap);
+            } else {
+              reject(new Error("AMap loaded without global"));
+            }
+          };
+          script.onerror = () => reject(new Error("AMap script failed"));
+          document.head.appendChild(script);
+        }).catch(error => {
+          amapLoaderPromise = null;
+          throw error;
+        });
+
+        return amapLoaderPromise;
+      }
+
+      function initializeSketchMaps(items) {
         if (typeof window.L === "undefined") return;
 
         items.forEach(item => {
@@ -2107,10 +2162,75 @@
           });
 
           map.fitBounds(polyline.getBounds(), { padding: [22, 22] });
-          mapInstances.set(item.date, map);
+          mapInstances.set(item.date, { provider: "leaflet", map });
 
           setTimeout(() => map.invalidateSize(), 120);
         });
+      }
+
+      function initializeAmapMaps(items) {
+        items.forEach(item => {
+          const container = document.getElementById(`map-${item.date}`);
+          if (!container || mapInstances.has(item.date) || !item.mapPoints?.length) return;
+
+          const points = item.mapPoints.map(point => ({
+            ...point,
+            lnglat: [point.coords[1], point.coords[0]]
+          }));
+
+          const center = points[0]?.lnglat || [103.8, 36.06];
+          const map = new window.AMap.Map(container, {
+            center,
+            zoom: 5,
+            resizeEnable: true,
+            mapStyle: "amap://styles/normal",
+            viewMode: "2D"
+          });
+
+          const polyline = new window.AMap.Polyline({
+            path: points.map(point => point.lnglat),
+            strokeColor: "#936237",
+            strokeOpacity: 0.9,
+            strokeWeight: 5,
+            lineJoin: "round",
+            lineCap: "round"
+          });
+          map.add(polyline);
+
+          points.forEach((point, index) => {
+            const marker = new window.AMap.Marker({
+              position: point.lnglat,
+              anchor: "center",
+              content: `<div class="route-marker">${index + 1}</div>`,
+              offset: new window.AMap.Pixel(0, 0)
+            });
+            marker.setMap(map);
+            marker.on("click", () => {
+              const infoWindow = new window.AMap.InfoWindow({
+                content: `<div style="padding:4px 2px;font-size:12px;">${index + 1}. ${escapeHtml(point.name)}</div>`,
+                offset: new window.AMap.Pixel(0, -12)
+              });
+              infoWindow.open(map, point.lnglat);
+            });
+          });
+
+          map.setFitView();
+          mapInstances.set(item.date, { provider: "amap", map });
+        });
+      }
+
+      async function initializeMaps(items) {
+        if (AMAP_CONFIG.key) {
+          try {
+            await loadAmapScript();
+            initializeAmapMaps(items);
+            return;
+          } catch (error) {
+            console.warn("AMap load failed, fallback to sketch map.", error);
+          }
+        }
+
+        initializeSketchMaps(items);
       }
 
       function cardTemplate(item) {
